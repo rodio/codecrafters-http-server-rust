@@ -32,7 +32,7 @@ fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
                 if s == "GET / HTTP/1.1" {
                     Ok("HTTP/1.1 200 OK\r\n\r\n".to_string())
                 } else {
-                    Ok("HTTP/1.1 404 NOT_FOUND\r\n\r\n".to_string())
+                    Ok("HTTP/1.1 404 Not Found\r\n\r\n".to_string())
                 }
             }
             Err(e) => Err(e),
