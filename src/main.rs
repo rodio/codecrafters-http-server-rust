@@ -27,14 +27,38 @@ fn main() {
 fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
     let buf_reader = BufReader::new(stream);
     if let Some(line) = buf_reader.lines().next() {
-        match line {
-            Ok(s) => {
-                if s == "GET / HTTP/1.1" {
-                    Ok("HTTP/1.1 200 OK\r\n\r\n".to_string())
-                } else {
-                    Ok("HTTP/1.1 404 Not Found\r\n\r\n".to_string())
+        let line = line?;
+        let mut parts = line.split_whitespace();
+
+        let _verb = parts.next().ok_or(Error::other("no HTTP verb"))?;
+        let endpoint = parts.next().ok_or(Error::other("no endpoint"));
+
+        let ok = String::from("HTTP/1.1 200 OK");
+        let crlf = "\r\n";
+        let not_found = format!("HTTP/1.1 404 Not Found{crlf}{crlf}");
+
+        match endpoint {
+            Ok(endpoint) => match endpoint {
+                "/" => Ok(format!("{ok}{crlf}{crlf}")),
+
+                s if s.starts_with("/echo/") => {
+                    let mut parts = s.split("/echo/");
+                    parts.next(); // skipping the empty
+
+                    if let Some(pong) = parts.next() {
+                        if pong.is_empty() || pong.contains('/') {
+                            Ok(not_found)
+                        } else {
+                            let pong_len = pong.len();
+                            Ok(format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}"))
+                        }
+                    } else {
+                        Ok(not_found)
+                    }
                 }
-            }
+
+                _ => Ok(not_found),
+            },
             Err(e) => Err(e),
         }
     } else {
