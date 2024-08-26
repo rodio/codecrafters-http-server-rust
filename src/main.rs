@@ -25,43 +25,40 @@ fn main() {
 }
 
 fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
-    let buf_reader = BufReader::new(stream);
-    if let Some(line) = buf_reader.lines().next() {
-        let line = line?;
-        let mut parts = line.split_whitespace();
+    let first_line = BufReader::new(stream)
+        .lines()
+        .next()
+        .ok_or(Error::other("empty stream"))?
+        .unwrap();
 
-        let _verb = parts.next().ok_or(Error::other("no HTTP verb"))?;
-        let endpoint = parts.next().ok_or(Error::other("no endpoint"));
+    let mut parts = first_line.split_whitespace();
 
-        let ok = String::from("HTTP/1.1 200 OK");
-        let crlf = "\r\n";
-        let not_found = format!("HTTP/1.1 404 Not Found{crlf}{crlf}");
+    let _verb = parts.next().ok_or(Error::other("no HTTP verb"))?;
+    let endpoint = parts.next().ok_or(Error::other("no endpoint"))?;
 
-        match endpoint {
-            Ok(endpoint) => match endpoint {
-                "/" => Ok(format!("{ok}{crlf}{crlf}")),
+    let ok = String::from("HTTP/1.1 200 OK");
+    let crlf = "\r\n";
+    let not_found = format!("HTTP/1.1 404 Not Found{crlf}{crlf}");
 
-                s if s.starts_with("/echo/") => {
-                    let mut parts = s.split("/echo/");
-                    parts.next(); // skipping the empty
+    match endpoint {
+        "/" => Ok(format!("{ok}{crlf}{crlf}")),
 
-                    if let Some(pong) = parts.next() {
-                        if pong.is_empty() || pong.contains('/') {
-                            Ok(not_found)
-                        } else {
-                            let pong_len = pong.len();
-                            Ok(format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}"))
-                        }
-                    } else {
-                        Ok(not_found)
-                    }
+        s if s.starts_with("/echo/") => {
+            let mut parts = s.split("/echo/");
+            parts.next(); // skipping the empty
+
+            if let Some(pong) = parts.next() {
+                if pong.is_empty() || pong.contains('/') {
+                    Ok(not_found)
+                } else {
+                    let pong_len = pong.len();
+                    Ok(format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}"))
                 }
-
-                _ => Ok(not_found),
-            },
-            Err(e) => Err(e),
+            } else {
+                Ok(not_found)
+            }
         }
-    } else {
-        Err(Error::other("empty stream"))
+
+        _ => Ok(not_found),
     }
 }
