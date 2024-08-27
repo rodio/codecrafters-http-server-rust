@@ -25,23 +25,22 @@ fn main() {
 }
 
 fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
-    let first_line = BufReader::new(stream)
-        .lines()
-        .next()
-        .ok_or(Error::other("empty stream"))?
-        .unwrap();
+    let mut lines = BufReader::new(stream).lines();
+    let request_line = lines.next().ok_or(Error::other("empty stream"))?.unwrap();
 
-    let mut parts = first_line.split_whitespace();
+    let mut parts = request_line.split_whitespace();
 
     let _verb = parts.next().ok_or(Error::other("no HTTP verb"))?;
     let endpoint = parts.next().ok_or(Error::other("no endpoint"))?;
 
-    let ok = String::from("HTTP/1.1 200 OK");
+    let ok = "HTTP/1.1 200 OK";
     let crlf = "\r\n";
-    let not_found = format!("HTTP/1.1 404 Not Found{crlf}{crlf}");
+    let not_found = "HTTP/1.1 404 Not Found".to_owned() + crlf + crlf;
+
+    let mut result: String = String::new();
 
     match endpoint {
-        "/" => Ok(format!("{ok}{crlf}{crlf}")),
+        "/" => result = format!("{ok}{crlf}{crlf}"),
 
         s if s.starts_with("/echo/") => {
             let mut parts = s.split("/echo/");
@@ -49,16 +48,36 @@ fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
 
             if let Some(pong) = parts.next() {
                 if pong.is_empty() || pong.contains('/') {
-                    Ok(not_found)
+                    result = not_found.to_owned();
                 } else {
                     let pong_len = pong.len();
-                    Ok(format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}"))
+                    result = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}");
                 }
             } else {
-                Ok(not_found)
+                result = not_found.to_owned();
             }
         }
 
-        _ => Ok(not_found),
-    }
+        "/user-agent" => {
+            for line in lines
+                .map(|line| line.unwrap())
+                .take_while(|line| !line.is_empty())
+            {
+                if line.starts_with("User-Agent: ") {
+                    let mut parts = line.split("User-Agent: ");
+                    parts.next();
+                    let agent = parts.next().unwrap().trim();
+                    let agent_len = agent.len();
+                    result = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {agent_len}{crlf}{crlf}{agent}");
+                }
+            }
+            if result.is_empty() {
+                result = not_found.to_owned();
+            }
+        }
+
+        _ => result = not_found.to_owned(),
+    };
+
+    Ok(result)
 }
