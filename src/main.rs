@@ -1,6 +1,7 @@
 use std::{
     io::{BufRead, BufReader, Error, Write},
     net::{TcpListener, TcpStream},
+    thread,
 };
 
 fn main() {
@@ -8,8 +9,10 @@ fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
+    let mut handles = vec![];
+
     for incoming in listener.incoming() {
-        match incoming {
+        let handle = thread::spawn(|| match incoming {
             Ok(mut stream) => {
                 match parse_request(&mut stream) {
                     Ok(response) => match stream.write_all(response.as_bytes()) {
@@ -20,7 +23,12 @@ fn main() {
                 };
             }
             Err(e) => println!("error while creating stream: {}", e),
-        };
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        h.join();
     }
 }
 
