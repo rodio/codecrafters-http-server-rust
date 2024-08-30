@@ -1,40 +1,35 @@
+mod threadpool;
+
 use std::{
     io::{BufRead, BufReader, Error, Write},
     net::{TcpListener, TcpStream},
-    thread,
 };
+
+use threadpool::ThreadPool;
 
 fn main() {
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
-    let mut handles = vec![];
+    let mut thread_pool = ThreadPool::new();
 
     for incoming in listener.incoming() {
-        let handle = thread::spawn(|| match incoming {
-            Ok(mut stream) => {
-                match parse_request(&mut stream) {
-                    Ok(response) => match stream.write_all(response.as_bytes()) {
-                        Ok(_) => (),
-                        Err(e) => println!("error while writing response: {}", e),
-                    },
-                    Err(e) => println!("error while parsing request: {}", e),
+        thread_pool.execute(|| match incoming {
+            Ok(stream) => {
+                match process_request(stream) {
+                    Ok(_) => (),
+                    Err(e) => println!("error while processing: {}", e),
                 };
             }
             Err(e) => println!("error while creating stream: {}", e),
         });
-        handles.push(handle);
-    }
-
-    for h in handles {
-        h.join();
     }
 }
 
-fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
-    let mut lines = BufReader::new(stream).lines();
-    let request_line = lines.next().ok_or(Error::other("empty stream"))?.unwrap();
+fn process_request(mut stream: TcpStream) -> Result<(), Error> {
+    let mut lines = BufReader::new(&stream).lines();
+    let request_line = lines.next().ok_or(Error::other("empty stream"))??;
 
     let mut parts = request_line.split_whitespace();
 
@@ -45,10 +40,10 @@ fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
     let crlf = "\r\n";
     let not_found = "HTTP/1.1 404 Not Found".to_owned() + crlf + crlf;
 
-    let mut result: String = String::new();
+    let mut response: String = String::new();
 
     match endpoint {
-        "/" => result = format!("{ok}{crlf}{crlf}"),
+        "/" => response = format!("{ok}{crlf}{crlf}"),
 
         s if s.starts_with("/echo/") => {
             let mut parts = s.split("/echo/");
@@ -56,13 +51,13 @@ fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
 
             if let Some(pong) = parts.next() {
                 if pong.is_empty() || pong.contains('/') {
-                    result = not_found.to_owned();
+                    response = not_found.to_owned();
                 } else {
                     let pong_len = pong.len();
-                    result = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}");
+                    response = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {pong_len}{crlf}{crlf}{pong}");
                 }
             } else {
-                result = not_found.to_owned();
+                response = not_found.to_owned();
             }
         }
 
@@ -76,16 +71,16 @@ fn parse_request(stream: &mut TcpStream) -> Result<String, Error> {
                     parts.next();
                     let agent = parts.next().unwrap().trim();
                     let agent_len = agent.len();
-                    result = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {agent_len}{crlf}{crlf}{agent}");
+                    response = format!("{ok}{crlf}Content-Type: text/plain{crlf}Content-Length: {agent_len}{crlf}{crlf}{agent}");
                 }
             }
-            if result.is_empty() {
-                result = not_found.to_owned();
+            if response.is_empty() {
+                response = not_found.to_owned();
             }
         }
 
-        _ => result = not_found.to_owned(),
+        _ => response = not_found.to_owned(),
     };
 
-    Ok(result)
+    stream.write_all(response.as_bytes())
 }
