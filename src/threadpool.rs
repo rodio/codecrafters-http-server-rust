@@ -41,7 +41,6 @@ impl Worker {
 
             match message {
                 Ok(job) => {
-                    println!("worker is executing a job");
                     job();
                 }
                 Err(_) => break,
