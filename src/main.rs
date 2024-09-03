@@ -8,6 +8,7 @@ use std::{
     net::{TcpListener, TcpStream},
 };
 
+use flate2::{read::GzEncoder, Compression};
 use request::Request;
 use threadpool::ThreadPool;
 
@@ -48,15 +49,14 @@ fn process_request(mut stream: TcpStream, directory: Option<String>) -> Result<(
         Err(e) => return Err(e),
     };
 
-    match request.endpoint.as_str() {
+    let s = request.endpoint.to_owned();
+    match s.as_str() {
         "/" => return stream.write_all([OK, CRLF, CRLF].concat().as_slice()),
 
         s if s.starts_with("/echo/") => {
             let mut parts = s.split("/echo/");
             parts.next(); // skipping the empty
-            if let Some(pong) = parts.next() {
-                return serve_echo(pong, &stream);
-            }
+            serve_echo(request, &stream)
         }
 
         s if s.starts_with("/files/") => {
@@ -68,14 +68,14 @@ fn process_request(mut stream: TcpStream, directory: Option<String>) -> Result<(
             };
 
             match request.verb.as_str() {
-                "GET" => return serve_file(directory, filename, &stream),
+                "GET" => serve_file(directory, filename, &stream),
                 "POST" => {
                     if request.body.is_none() {
                         return stream.write_all(NOT_FOUND);
                     }
-                    return save_file(directory, filename, &request.body.unwrap(), &stream);
+                    save_file(directory, filename, &request.body.unwrap(), &stream)
                 }
-                _ => return stream.write_all(NOT_FOUND),
+                _ => stream.write_all(NOT_FOUND),
             }
         }
 
@@ -100,12 +100,10 @@ fn process_request(mut stream: TcpStream, directory: Option<String>) -> Result<(
             };
 
             // Header not found
-            return stream.write_all(NOT_FOUND);
+            stream.write_all(NOT_FOUND)
         }
-        _ => return stream.write_all(NOT_FOUND),
-    };
-
-    stream.write_all(NOT_FOUND)
+        _ => stream.write_all(NOT_FOUND),
+    }
 }
 
 fn serve_file(
@@ -153,27 +151,47 @@ fn serve_file(
     }
 }
 
-fn serve_echo(echo: &str, mut stream: &TcpStream) -> Result<(), Error> {
-    if echo.is_empty() || echo.contains('/') {
-        return stream.write_all(NOT_FOUND);
-    }
+fn serve_echo(request: Request, mut stream: &TcpStream) -> Result<(), Error> {
+    let mut parts = request.endpoint.split("/echo/");
+    parts.next(); // skipping the empty
+    if let Some(echo) = parts.next() {
+        if echo.is_empty() || echo.contains('/') {
+            return stream.write_all(NOT_FOUND);
+        }
 
-    let pong_len = echo.len().to_string();
-    return stream.write_all(
-        [
-            OK,
-            CRLF,
+        let mut vec_content = vec![OK, CRLF];
+
+        let body_len: String;
+        let mut body: Vec<u8> = Vec::new();
+        if request.headers.contains_key("Accept-Encoding")
+            && request
+                .headers
+                .get("Accept-Encoding")
+                .unwrap()
+                .contains("gzip")
+        {
+            let mut encoder = GzEncoder::new(echo.as_bytes(), Compression::default());
+            encoder.read_to_end(&mut body)?;
+            body_len = body.len().to_string();
+            vec_content.extend([b"Content-Encoding: gzip", CRLF]);
+        } else {
+            body_len = echo.len().to_string();
+            body = Vec::from(echo);
+        };
+
+        vec_content.extend([
             b"Content-Type: text/plain",
             CRLF,
             b"Content-Length: ",
-            pong_len.as_bytes(),
+            body_len.as_bytes(),
             CRLF,
             CRLF,
-            echo.as_bytes(),
-        ]
-        .concat()
-        .as_slice(),
-    );
+            body.as_slice(),
+        ]);
+        return stream.write_all(vec_content.concat().as_slice());
+    };
+
+    stream.write_all(NOT_FOUND)
 }
 
 fn save_file(

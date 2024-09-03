@@ -12,6 +12,11 @@ pub(crate) struct Request {
     pub headers: HashMap<String, String>,
 }
 
+const USER_AGENT: &str = "User-Agent";
+const USER_AGENT_HEADER_START: &str = "User-Agent: ";
+const ACCEPT_ENCODING_HEADER_START: &str = "Accept-Encoding: ";
+const ACCEPT_ENCODING: &str = "Accept-Encoding";
+
 impl Request {
     pub fn from_stream(mut stream: &TcpStream) -> Result<Self, Error> {
         let mut buf = [0_u8; 1024];
@@ -48,13 +53,22 @@ impl Request {
 
         let mut headers = HashMap::new();
         for line in req_lines {
-            if !line.starts_with("User-Agent: ") {
+            if line.starts_with(USER_AGENT_HEADER_START) {
+                let mut parts = line.split(USER_AGENT_HEADER_START);
+                parts.next(); // skip the empty
+                let agent = parts.next().unwrap().trim();
+                headers.insert(USER_AGENT.to_owned(), agent.to_owned());
                 continue;
             }
-            let mut parts = line.split("User-Agent: ");
-            parts.next(); // skip the empty
-            let agent = parts.next().unwrap().trim();
-            headers.insert("User-Agent".to_owned(), agent.to_owned());
+
+            if line.starts_with(ACCEPT_ENCODING_HEADER_START) {
+                let mut parts = line.split(ACCEPT_ENCODING_HEADER_START);
+                parts.next(); // skip the empty
+                let agent = parts.next().unwrap().trim();
+                headers.insert(ACCEPT_ENCODING.to_owned(), agent.to_owned());
+                continue;
+            }
+
             parts.next();
         }
 
